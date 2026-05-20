@@ -49,7 +49,7 @@ async function callGeminiJSON<T>(systemPrompt: string, userPrompt: string, fallb
         console.warn('[GeminiService] Failed to list models, defaulting to fallback model.');
       }
       // Fallback to a known stable model name that works for most free‑tier keys.
-      return 'gemini-1.5-flash';
+      return 'gemini-2.0-flash';
     })();
 
     const model = genAI.getGenerativeModel({
@@ -79,6 +79,193 @@ async function callGeminiJSON<T>(systemPrompt: string, userPrompt: string, fallb
     return fallbackGenerator();
   }
 }
+
+function detectCategory(topic: string): 'health' | 'tech' | 'creative' | 'business' | 'general' {
+  const lower = topic.toLowerCase();
+  
+  const healthKeywords = ['diet', 'dietary', 'nutrition', 'food', 'wellness', 'health', 'cooking', 'recipe', 'kid', 'baby', 'toddler', 'child', 'eating', 'meal', 'nutritionist', 'pediatric', 'vitamins', 'fitness', 'exercise', 'weight', 'skin', 'sleep', 'growth', 'physical', 'body'];
+  const techKeywords = ['software', 'programming', 'coding', 'web', 'engineering', 'math', 'science', 'physics', 'data', 'cloud', 'quantum', 'system', 'architecture', 'crypto', 'security', 'ai', 'intelligence', 'llm', 'agent', 'machine learning', 'tech', 'network', 'database', 'algorithm', 'blockchain'];
+  const creativeKeywords = ['music', 'art', 'painting', 'writing', 'history', 'literature', 'design', 'philosophy', 'language', 'culture', 'creative', 'photography', 'drawing', 'drama', 'theatre', 'dance', 'film', 'poetry', 'sculpture'];
+  const businessKeywords = ['business', 'finance', 'marketing', 'strategy', 'startup', 'sales', 'management', 'investment', 'economy', 'money', 'growth', 'career', 'corporate', 'product', 'customer', 'revenue', 'profit', 'hr', 'hiring', 'recruiting', 'retail', 'commerce'];
+
+  if (healthKeywords.some(kw => lower.includes(kw))) return 'health';
+  if (techKeywords.some(kw => lower.includes(kw))) return 'tech';
+  if (creativeKeywords.some(kw => lower.includes(kw))) return 'creative';
+  if (businessKeywords.some(kw => lower.includes(kw))) return 'business';
+  return 'general';
+}
+
+const CATEGORY_NODE_DICTIONARY: Record<string, { label: string; desc: string; details: string }> = {
+  // Health & Wellness (hlth)
+  "hlth1": { label: "Nutritional Foundations", desc: "Essential nutrients, macro & micro balance", details: "Understanding the building blocks of healthy eating, including vitamins, minerals, proteins, healthy fats, and carbohydrates tailored to this topic." },
+  "hlth2": { label: "Daily Meal Planning", desc: "Practical schedules and recipes", details: "Constructing balanced, delicious, and age-appropriate meals throughout the day, focusing on consistent schedules and food variety." },
+  "hlth3": { label: "Healthy Habits & Education", desc: "Fostering positive relationships with food", details: "Techniques for introducing new foods, establishing mindful eating practices, and educating on long-term wellness habits." },
+  "hlth4": { label: "Common Challenges & Solutions", desc: "Overcoming picky eating and allergies", details: "Practical strategies to address common nutritional struggles, dietary restrictions, food sensitivities, and selective eating behaviors." },
+  
+  "hlth1_a": { label: "Macronutrient Balance", desc: "Proteins, clean carbs & healthy lipids", details: "Balancing caloric intake across key energy sources to fuel daily activity and support healthy physical and mental development." },
+  "hlth1_b": { label: "Micro & Trace Elements", desc: "Vitamins, minerals and hydration", details: "Securing essential vitamins and trace minerals required for core metabolic functions, growth, and immune defense." },
+  "hlth1_a_a": { label: "Protein & Amino Acids", desc: "Structural building blocks", details: "Sourcing high-quality proteins to repair tissues, build muscles, and support hormone synthesis." },
+  "hlth1_a_b": { label: "Complex Carbohydrates", desc: "Sustained glycogen & energy", details: "Focusing on slow-release starches and fibers to maintain steady energy levels and support digestive health." },
+  "hlth1_b_a": { label: "Essential Vitamins", desc: "Micronutrients for metabolic support", details: "Securing vitamins like Vitamin D, C, and B-complex to act as vital coenzymes in cellular growth and immunity." },
+  "hlth1_b_b": { label: "Hydration & Mineral Balance", desc: "Fluids, calcium, iron & zinc", details: "Maintaining cellular hydration and securing bone-building calcium and oxygen-transporting iron." },
+
+  "hlth2_a": { label: "Breakfast & Lunch Fuel", desc: "Energizing start to the day", details: "Providing nutrient-dense morning options that set up cognitive focus and physical stamina." },
+  "hlth2_b": { label: "Dinners & Smart Snacks", desc: "Restorative evening nutrition", details: "Offering balanced, satisfying dinners and low-sugar snacks to keep energy levels stable without sugar spikes." },
+  "hlth2_a_a": { label: "Nutrient-Dense Breakfasts", desc: "Proteins and slow carbs", details: "Quick, balanced meals like oatmeal with nuts or eggs to kickstart the metabolism and support focus." },
+  "hlth2_a_b": { label: "Balanced Portable Lunches", desc: "Nourishment for school/work", details: "Crafting easily transportable meals containing a solid balance of clean proteins, fresh produce, and whole grains." },
+  "hlth2_b_a": { label: "Balanced Family Dinners", desc: "Diverse ingredients on one plate", details: "Preparing well-rounded evening meals featuring vegetables, healthy fats, and lean proteins for restorative nutrition." },
+  "hlth2_b_b": { label: "Low-Sugar Healthy Snacks", desc: "Whole-food energy boosts", details: "Replacing packaged processed snacks with fruits, veggies, hummus, or seeds to bridge hunger gaps." },
+
+  "hlth3_a": { label: "Positive Food Association", desc: "Encouraging exploration without pressure", details: "Using culinary interaction, sensory exploration, and low-stress environments to help people welcome new foods." },
+  "hlth3_b": { label: "Eating Environment", desc: "Structuring calm, regular meals", details: "Establishing clean routines around dining, including distraction-free environments and social interaction." },
+  "hlth3_a_a": { label: "Sensory Play & Cooking", desc: "Hands-on food interaction", details: "Involving individuals in washing, chopping, and plating to reduce fear of unfamiliar textures and tastes." },
+  "hlth3_a_b": { label: "Role Modeling Habits", desc: "Leading by positive example", details: "Demonstrating diverse, healthy food appreciation at the table, as behaviors are caught rather than taught." },
+  "hlth3_b_a": { label: "Screen-Free Dining", desc: "Mindful and focused eating", details: "Eliminating phones and televisions during meals to promote full satiety awareness and meaningful conversation." },
+  "hlth3_b_b": { label: "Mindful Portions", desc: "Listening to natural satiety", details: "Teaching people to honor their bodies' hunger and fullness cues rather than enforcing 'clean plate' rules." },
+
+  "hlth4_a": { label: "Selective Eating Strategy", desc: "Handling pickiness and aversion", details: "Overcoming food neophobia and texture sensitivities through patient, structured dietary introduction strategies." },
+  "hlth4_b": { label: "Allergies & Sensitivities", desc: "Managing dietary restrictions safely", details: "Identifying allergens and building robust protocols to avoid adverse immune responses or systemic inflammation." },
+  "hlth4_a_a": { label: "Exposure Therapy Methods", desc: "Systematic food desensitization", details: "Offering tiny, non-threatening portions of a new food alongside familiar favorites, up to 15 times, to build acceptance." },
+  "hlth4_a_b": { label: "Creative Nutrient Density", desc: "Optimizing recipes seamlessly", details: "Incorporating puréed vegetables, ground seeds, or bone broth into sauces and soups to elevate nutrition smoothly." },
+  "hlth4_b_a": { label: "Ingredient Substitutions", desc: "Finding safe, nutritious alternatives", details: "Using gluten-free grains, seed butters, or plant-based milks to replicate culinary textures safely." },
+  "hlth4_b_b": { label: "Cross-Contamination Checks", desc: "Maintaining allergen-free spaces", details: "Adopting clear kitchen practices, separate utensils, and meticulous label reading to guarantee absolute food safety." },
+
+  // Tech & Coding (tech)
+  "tech1": { label: "Core Architecture & Logic", desc: "System design and foundational concepts", details: "Analyzing the structural pillars, core mathematical or algorithmic logic, and fundamental paradigms of this technology." },
+  "tech2": { label: "Practical Implementations", desc: "Frameworks, tools, and code patterns", details: "Exploring popular open-source libraries, tooling environments, and real-world implementation methodologies." },
+  "tech3": { label: "Performance Optimization", desc: "Scaling, latency, and resource limits", details: "Strategies for maximizing execution speed, tuning memory usage, and avoiding scaling bottlenecks." },
+  "tech4": { label: "Challenges & Future Trends", desc: "Security, trade-offs, and next-gen tech", details: "Evaluating technical debt, modern security threats, compliance standards, and emergent industry directions." },
+
+  "tech1_a": { label: "Algorithmic Foundations", desc: "Underlying computation models", details: "Analyzing core data models, logic syntax, and mathematical foundations that support computations in this domain." },
+  "tech1_b": { label: "System Architecture", desc: "High-level component layout", details: "Designing robust patterns to organize software components, manage service state, and decouple dependencies." },
+  "tech1_a_a": { label: "Data Structures", desc: "Organizing relational information", details: "Selecting optimal data arrangements (trees, graphs, key-value stores) to maximize retrieval efficiency." },
+  "tech1_a_b": { label: "Complexity Analysis", desc: "Time and space computational bounds", details: "Measuring algorithm growth rates (Big O) to guarantee performance holds up as input sizes scale." },
+  "tech1_b_a": { label: "Component Decoupling", desc: "Modular interface design", details: "Enforcing strict separation of concerns to allow modules to be updated or replaced independently." },
+  "tech1_b_b": { label: "Interface Definitions", desc: "Strict system schemas", details: "Establishing unambiguous contracts (APIs, schemas, types) to coordinate communication between components." },
+
+  "tech2_a": { label: "Tooling & Environments", desc: "Compilers, IDEs, and runtimes", details: "Setting up developer tools, compiler optimization flags, and local runtime sandboxes for maximum productivity." },
+  "tech2_b": { label: "API Design & Patterns", desc: "Creating reusable integrations", details: "Structuring public and private interfaces using proven design patterns to expose capabilities safely." },
+  "tech2_a_a": { label: "Standard Dev Suites", desc: "Essential local environments", details: "The basic setup of linters, formatters, and local debuggers required to write high-quality code." },
+  "tech2_a_b": { label: "CI/CD Pipelines", desc: "Automating validation and deployment", details: "Setting up automated test runs and build processes to gate-check and deploy new code updates seamlessly." },
+  "tech2_b_a": { label: "RESTful/GraphQL Standards", desc: "Decoupled web interfaces", details: "Adopting structured protocols to serialize, fetch, and mutate resources across distributed networks." },
+  "tech2_b_b": { label: "State Management", desc: "Predictable data flows", details: "Tracking complex user or server states using immutable data stores and clear transactional actions." },
+
+  "tech3_a": { label: "Latency Reduction", desc: "Improving execution speeds", details: "Eliminating blocking operations, slow I/O bottlenecks, and network roundtrips to achieve sub-millisecond response times." },
+  "tech3_b": { label: "Resource Utilization", desc: "Optimizing memory & CPU overhead", details: "Minimizing baseline footprint, preventing memory leaks, and managing CPU cycles efficiently under high-load concurrency." },
+  "tech3_a_a": { label: "Caching Protocols", desc: "In-memory data retrieval", details: "Storing high-demand query results in key-value caches (like Redis) to bypass expensive database lookups." },
+  "tech3_a_b": { label: "Concurrent Threading", desc: "Parallel task execution", details: "Leveraging non-blocking asynchronous event loops or multi-core thread pools to process tasks simultaneously." },
+  "tech3_b_a": { label: "Memory Leak Resolution", desc: "Mitigating allocation bloat", details: "Profiling runtimes to identify uncollected references, preventing slow resource degradation." },
+  "tech3_b_b": { label: "Database Indexing", desc: "Query speed optimization", details: "Creating efficient lookup indexes on high-traffic database fields to avoid slow full-table scans." },
+
+  "tech4_a": { label: "Security & Encryption", desc: "Protecting data and endpoints", details: "Implementing industry-standard cryptography, authorization protocols, and secure network boundaries." },
+  "tech4_b": { label: "Technological Evolution", desc: "Future roadmaps and paradigms", details: "Tracking emergent language features, architectural trends, and planning non-disruptive migration strategies." },
+  "tech4_a_a": { label: "Auth Protocols", desc: "OAuth2 and JWT protection", details: "Verifying user identities and scopes securely across distributed services without exposing secrets." },
+  "tech4_a_b": { label: "Threat Vector Audits", desc: "Defending common vulnerabilities", details: "Testing systems against standard exploit vectors (SQL injection, XSS, CSRF) to harden production environments." },
+  "tech4_b_a": { label: "Emerging Paradigms", desc: "Next-gen frameworks and runtimes", details: "Evaluating cutting-edge libraries or languages to see if they offer 10x gains in safety or performance." },
+  "tech4_b_b": { label: "Legacy Migration", desc: "Refactoring without downtime", details: "Phasing out outdated software layers incrementally using patterns like the Strangler Fig to minimize service disruption." },
+
+  // Creative & Arts (crtv)
+  "crtv1": { label: "Theoretical & Historical Foundations", desc: "Origins, movements, and key concepts", details: "Investigating the historical evolution, philosophical frameworks, and creative movements that shaped this domain." },
+  "crtv2": { label: "Creative Techniques & Mediums", desc: "Skills, tools, and practical execution", details: "Delving into standard artistic practices, tools of the trade, and specific technical skills required for mastery." },
+  "crtv3": { label: "Style & Composition Analysis", desc: "Structure, form, and aesthetics", details: "Exploring elements of composition, structural design patterns, and aesthetic principles that make works compelling." },
+  "crtv4": { label: "Modern Expression & Adaptations", desc: "Contemporary uses and digital shifts", details: "Analyzing how traditional techniques adapt to digital mediums, modern audiences, and cross-disciplinary collaborations." },
+
+  "crtv1_a": { label: "Historical Evolution", desc: "Chronological development & milestones", details: "Tracing the origins, historical figures, and evolutionary cycles that brought this art form to its modern state." },
+  "crtv1_b": { label: "Philosophical Frameworks", desc: "Ideologies and core theories", details: "Analyzing the underlying aesthetic theories, artistic philosophies, and core expressive intents that drive creators." },
+  "crtv1_a_a": { label: "Pioneering Works", desc: "Masterpieces and key turn-points", details: "Studying critical historical works that disrupted standard conventions and birthed new stylistic sub-genres." },
+  "crtv1_a_b": { label: "Cultural Milestones", desc: "Artistic response to history", details: "Examining how cultural shifts, societal events, and economic conditions directly shaped the evolution of creative output." },
+  "crtv1_b_a": { label: "Aesthetic Theories", desc: "Defining beauty and expression", details: "Exploring different artistic paradigms (realism, impressionism, abstractionism) that govern how art is judged." },
+  "crtv1_b_b": { label: "Conceptual Intent", desc: "Translating messages into forms", details: "Understanding the direct link between a creator's emotional or political message and their selected artistic shape." },
+
+  "crtv2_a": { label: "Technical Mastery", desc: "Essential physical/digital skills", details: "Practicing the core motor coordinates, brushwork, wordcraft, or instrument fingerings required to execute ideas cleanly." },
+  "crtv2_b": { label: "Practice Methodologies", desc: "Improving skills through routine", details: "Structuring creative habits, feedback loops, and daily exercises to steadily elevate execution precision." },
+  "crtv2_a_a": { label: "Drafting & Crafting", desc: "Initial sketching and planning", details: "The crucial blueprint phase where layouts, outline structures, or raw melodies are drafted before detailing." },
+  "crtv2_a_b": { label: "Material/Tool Selection", desc: "Choosing instruments and mediums", details: "Understanding how different papers, lenses, paint types, or word-processors modify the texture and mood of the final piece." },
+  "crtv2_b_a": { label: "Deliberate Practice", desc: "Isolating weaknesses systematically", details: "Breaking down complex movements or writing challenges into isolated exercises to rebuild them stronger." },
+  "crtv2_b_b": { label: "Iterative Refining", desc: "The editing and polishing phase", details: "Applying ruthless critical analysis to early drafts, chipping away elements that do not serve the central vision." },
+
+  "crtv3_a": { label: "Structural Harmony", desc: "Balancing forms and expressions", details: "Organizing focal points, leading lines, melodic arcs, or narrative structures to guide the audience's attention." },
+  "crtv3_b": { label: "Expressive Storytelling", desc: "Conveying narrative and emotion", details: "Layering metaphorical elements, atmospheric moods, or stylistic choices to trigger deep, visceral emotional reactions." },
+  "crtv3_a_a": { label: "Proportions & Scale", desc: "Managing visual/auditory weight", details: "Arranging elements so that their relative sizes or volume dynamics create a pleasing sense of balance and focus." },
+  "crtv3_a_b": { label: "Contrast & Tension", desc: "Generating dramatic interest", details: "Juxtaposing light and dark, consonance and dissonance, or action and stillness to keep the audience deeply engaged." },
+  "crtv3_b_a": { label: "Symbolism & Metaphor", desc: "Layered subtextual communication", details: "Embedding subtle visual, lyrical, or narrative symbols that communicate complex concepts beneath the surface." },
+  "crtv3_b_b": { label: "Atmospheric Depth", desc: "Creating immersive environments", details: "Using color palettes, acoustic reverb, or sensory writing descriptions to transport the audience into the work." },
+
+  "crtv4_a": { label: "Digital Transformation", desc: "Modern digital tools and channels", details: "Leveraging digital illustration suites, DAWs, or generative software to multiply creative capabilities." },
+  "crtv4_b": { label: "Audience Engagement", desc: "Connecting with modern viewers", details: "Publishing creative output across global networks, engaging communities, and managing digital portfolios." },
+  "crtv4_a_a": { label: "Software Integration", desc: "Harnessing high-tech creative engines", details: "Learning to co-create with vector engines, synthesizer plugins, or advanced layout editors." },
+  "crtv4_a_b": { label: "Online Portfolios", desc: "Showcasing work globally", details: "Setting up optimized web galleries or streaming profiles to showcase high-fidelity work directly to fans." },
+  "crtv4_b_a": { label: "Interactive Elements", desc: "Breaking the fourth wall", details: "Creating immersive, branching, or responsive works that shift based on real-time viewer input." },
+  "crtv4_b_b": { label: "Collaborative Formats", desc: "Cross-disciplinary co-creation", details: "Working in distributed teams combining code, sound, and visual arts to engineer rich, multi-sensory experiences." },
+
+  // Business & Strategy (biz)
+  "biz1": { label: "Strategic Foundations", desc: "Market dynamics and business models", details: "Analyzing market opportunities, value propositions, and foundational business design systems." },
+  "biz2": { label: "Operational Execution", desc: "Tactics, workflows, and resource allocation", details: "Exploring functional workflows, team coordination, sales cycles, and standard operational protocols." },
+  "biz3": { label: "Financial Growth & Risk", desc: "Revenue models, metrics, and compliance", details: "Structuring unit economics, funding strategies, pricing models, and key risk mitigation frameworks." },
+  "biz4": { label: "Scaling & Global Expansion", desc: "Growth hacking and internationalization", details: "Strategies for customer acquisition, organizational scaling, international expansion, and long-term brand building." },
+
+  "biz1_a": { label: "Market Research", desc: "Understanding audiences & competition", details: "Acquiring quantitative and qualitative insights regarding customer segments, buying triggers, and competitive landscapes." },
+  "biz1_b": { label: "Value Proposition", desc: "Differentiating your core offering", details: "Formulating a crystal-clear statement that explains how your product solves problems uniquely compared to alternatives." },
+  "biz1_a_a": { label: "Customer Persona Audits", desc: "Mapping demographic behaviors", details: "Building highly detailed avatars of ideal customers, mapping their daily friction points, goals, and budget limits." },
+  "biz1_a_b": { label: "Competitor Landscapes", desc: "Analyzing industry rivals", details: "Evaluating competitors' feature sets, pricing models, and market shares to locate undefended niches." },
+  "biz1_b_a": { label: "Unique Selling Points", desc: "Formulating core differentiators", details: "Defining the exact features, service speeds, or technological advantages that make your product irreplaceable." },
+  "biz1_b_b": { label: "Product-Market Fit", desc: "Aligning offering to actual demand", details: "Iteratively refining your product features based on early customer feedback until usage metrics explode." },
+
+  "biz2_a": { label: "Process Optimization", desc: "Streamlining daily business operations", details: "Identifying operational bottlenecks, defining clear team playbooks, and automating routine administrative steps." },
+  "biz2_b": { label: "Sales & Funnel Design", desc: "Converting leads into loyal customers", details: "Structuring a multi-step customer journey that educates prospects, handles objections, and closes deals predictably." },
+  "biz2_a_a": { label: "Workflow Automation", desc: "Removing human data transfer friction", details: "Integrating software (CRMs, APIs) to automatically parse invoices, route support tickets, and update databases." },
+  "biz2_a_b": { label: "Team Collaboration Tools", desc: "Synchronizing distributed staff", details: "Establishing clean communication loops using task boards and unified chat suites to maintain clear alignment." },
+  "biz2_b_a": { label: "Lead Acquisition Strategy", desc: "Attracting high-intent prospects", details: "Deploying organic content, SEO, and paid advertising to feed the top of your sales funnel consistently." },
+  "biz2_b_b": { label: "Conversion Rate Auditing", desc: "Plugging leaks in customer paths", details: "Analyzing drop-off points in your web checkout or sales call scripts to maximize the return on acquisition spend." },
+
+  "biz3_a": { label: "Unit Economics", desc: "Ensuring healthy profit margins", details: "Modeling the direct revenues and costs associated with a single customer transaction to ensure sustainable profit." },
+  "biz3_b": { label: "Risk Management", desc: "Mitigating legal & financial threats", details: "Establishing strong cash reserves, secure contract terms, and regulatory compliance standards to buffer shocks." },
+  "biz3_a_a": { label: "LTV-to-CAC Ratios", desc: "Measuring customer profitability", details: "Comparing a customer's Lifetime Value (LTV) against the Cost to Acquire them (CAC); a 3:1 ratio is the standard health target." },
+  "biz3_a_b": { label: "Pricing Elasticity Model", desc: "Finding optimal pricing points", details: "Testing different price levels to understand how demand shifts, unlocking maximum revenue potential." },
+  "biz3_b_a": { label: "Regulatory Compliance", desc: "Adhering to local & global laws", details: "Ensuring operations comply with privacy acts (GDPR, CCPA), tax codes, and employment laws to avoid catastrophic fines." },
+  "biz3_b_b": { label: "Cash Flow Safeguarding", desc: "Monitoring burn and runway", details: "Tracking monthly outgoing capital against incoming revenues to guarantee the business never runs out of operational liquidity." },
+
+  "biz4_a": { label: "Growth Engineering", desc: "High-leverage marketing tactics", details: "Deploying viral referral programs, SEO loops, and strategic integrations to acquire customers exponentially." },
+  "biz4_b": { label: "Organizational Scaling", desc: "Building teams and leadership", details: "Transitioning from founder-led execution to structured middle management and high-performing specialized teams." },
+  "biz4_a_a": { label: "Viral Loop Construction", desc: "Building user-driven acquisition", details: "Designing in-app incentives that naturally prompt active users to invite colleagues or friends, creating organic growth." },
+  "biz4_a_b": { label: "SEO & Content Engines", desc: "Dominating high-intent search terms", details: "Publishing authoritative, high-ranking educational guides that attract organic traffic without recurring ad costs." },
+  "biz4_b_a": { label: "Hiring & Talent Funnels", desc: "Sourcing top-tier staff", details: "Designing structured technical assessments and value-alignment interviews to hire exceptional talent." },
+  "biz4_b_b": { label: "Corporate Culture Scaling", desc: "Maintaining vision at scale", details: "Defining clear core values, feedback cadences, and transparent promotion pathways to retain top performers." },
+
+  // General & Hobbies (gen)
+  "gen1": { label: "Core Fundamentals", desc: "Origins, rules, and basic terms", details: "Getting started with the foundational terminology, history, rules, and basic equipment or skills." },
+  "gen2": { label: "Practical Techniques", desc: "Daily activities and hands-on exercises", details: "Step-by-step methods, skills, and activities required to put these concepts into practice." },
+  "gen3": { label: "Key Benefits & Growth", desc: "Mental, physical, and social impacts", details: "Understanding the primary advantages, milestones of progress, and positive impacts of this pursuit." },
+  "gen4": { label: "Common Barriers & Solutions", desc: "Troubleshooting mistakes and challenges", details: "Overcoming standard plateaus, resource limitations, common errors, and practical troubleshooting steps." },
+
+  "gen1_a": { label: "Essential Equipment", desc: "Selecting the right gear and workspace", details: "Identifying, sourcing, and arranging the hardware, physical materials, or software environments needed to begin." },
+  "gen1_b": { label: "Foundational Concepts", desc: "Core terms and essential rules", details: "Learning the fundamental vocabulary, core theories, governing rules, and basic safety protocols of this field." },
+  "gen1_a_a": { label: "Starter Gear Selection", desc: "Cost-effective beginner equipment", details: "Choosing entry-level tools that offer solid quality without requiring massive up-front capital investment." },
+  "gen1_a_b": { label: "Setting Up Your Space", desc: "Creating an optimized environment", details: "Designing a clean, comfortable, and distraction-free physical or digital workspace tailored to this pursuit." },
+  "gen1_b_a": { label: "Basic Nomenclature", desc: "Mastering domain vocabulary", details: "Understanding high-frequency terms, abbreviations, and common concepts used by active practitioners." },
+  "gen1_b_b": { label: "Safety & Rules Protocol", desc: "Reducing risks and errors", details: "Studying key safety procedures, rules of conduct, or operational constraints to avoid injuries or critical mistakes." },
+
+  "gen2_a": { label: "First Practices", desc: "Beginner-friendly introductory tasks", details: "Engaging in simple, low-stakes introductory exercises designed to build initial confidence and muscle memory." },
+  "gen2_b": { label: "Intermediate Progress", desc: "Moving beyond basic drills", details: "Advancing toward complex routines, compound activities, and self-audited challenges to break through early plateaus." },
+  "gen2_a_a": { label: "Step-by-Step Drills", desc: "Isolating core motions or sub-tasks", details: "Repetitively practicing basic elements to develop deep-seated subconscious habit coordinates." },
+  "gen2_a_b": { label: "Habit Formation Loops", desc: "Creating consistent routines", details: "Linking this practice with daily anchors to ensure regular, friction-free engagement over weeks." },
+  "gen2_b_a": { label: "Complex Combinations", desc: "Integrating separate skills", details: "Synthesizing individual sub-skills into fluid, continuous workflows that mimic real-world scenarios." },
+  "gen2_b_b": { label: "Performance Audits", desc: "Self-recording and critiquing progress", details: "Using recordings, logs, or benchmarks to systematically locate and correct errors in execution." },
+
+  "gen3_a": { label: "Personal Benefits", desc: "Mental clarity and physical wellness", details: "Experiencing immediate and long-range boosts in cognitive stamina, focus, stress reduction, or physical coordination." },
+  "gen3_b": { label: "Community & Sharing", desc: "Connecting with fellow enthusiasts", details: "Finding belonging, sharing projects, and learning from peers by integrating into local or global communities." },
+  "gen3_a_a": { label: "Cognitive Engagement", desc: "Activating focus and neuroplasticity", details: "Stimulating new neural pathways by challenging the brain with fresh, highly complex coordinates." },
+  "gen3_a_b": { label: "Stress Reduction Dynamics", desc: "Entering deep flow states", details: "Achieving mindfulness and calming cortisol levels by immersing entirely in an engaging, hands-on activity." },
+  "gen3_b_a": { label: "Forums & Local Meetups", desc: "Locating your tribe", details: "Locating online platforms, local clubs, or specialized spaces to share knowledge, questions, and achievements." },
+  "gen3_b_b": { label: "Collaborative Projects", desc: "Working together on creative goals", details: "Joining forces with other enthusiasts to build large-scale, compound works that are impossible to execute alone." },
+
+  "gen4_a": { label: "Troubleshooting Errors", desc: "Avoiding common beginner pitfalls", details: "Identifying systemic mistakes early and learning standard troubleshooting protocols to maintain momentum." },
+  "gen4_b": { label: "Resource Management", desc: "Balancing time and cost barriers", details: "Strategies to fit this pursuit into a busy schedule and find budget-friendly alternative materials." },
+  "gen4_a_a": { label: "Identifying Bad Habits", desc: "Early error self-correction", details: "Recognizing bad postures, sloppy logic patterns, or improper techniques before they calcify into muscle memory." },
+  "gen4_a_b": { label: "Correction Techniques", desc: "Systematic remediation patterns", details: "Using targeted drills or seeking expert reviews to systematically untangle and repair deeply-entrained errors." },
+  "gen4_b_a": { label: "Time Blocking Strategy", desc: "Finding time in busy lives", details: "Allocating recurring 15-to-30 minute focused blocks to maintain progress without disrupting primary obligations." },
+  "gen4_b_b": { label: "Cost-Effective Alternatives", desc: "Sourcing open-source or used items", details: "Acquiring second-hand gear, using free open-source software, or building DIY tools to keep expenses low." }
+};
 
 export class GeminiService {
   /**
@@ -722,7 +909,7 @@ export class GeminiService {
           : `Underlying Principles of ${cleanParent}`;
         return {
           label: label.length > 40 ? `${cleanParent} Mechanics` : label,
-          description: `Core theoretical dynamics of ${cleanParent}`,
+          desc: `Core theoretical dynamics of ${cleanParent}`,
           details: `An in-depth structural exploration of the underlying mechanisms, key formulas, and primary parameters governing ${cleanParent} at level ${depth}.`,
           importance: 'medium' as const
         };
@@ -732,7 +919,7 @@ export class GeminiService {
           : `Key Tradeoffs & Limits of ${cleanParent}`;
         return {
           label: label.length > 40 ? `${cleanParent} Applications` : label,
-          description: `Real-world impacts and constraints of ${cleanParent}`,
+          desc: `Real-world impacts and constraints of ${cleanParent}`,
           details: `A comprehensive evaluation of the practical implementations, case studies, operational limits, and critical tradeoffs surrounding ${cleanParent} at level ${depth}.`,
           importance: 'medium' as const
         };
@@ -757,15 +944,21 @@ export class GeminiService {
       // Resolve child A
       let childAData = CORE_NODE_DICTIONARY[childAId];
       if (!childAData) {
+        childAData = CATEGORY_NODE_DICTIONARY[childAId];
+      }
+      if (!childAData) {
         const dynamic = getDynamicConcept(parentId, parentLabel, 'a', childDepth);
-        childAData = { label: dynamic.label, desc: dynamic.description, details: dynamic.details };
+        childAData = { label: dynamic.label, desc: dynamic.desc, details: dynamic.details };
       }
 
       // Resolve child B
       let childBData = CORE_NODE_DICTIONARY[childBId];
       if (!childBData) {
+        childBData = CATEGORY_NODE_DICTIONARY[childBId];
+      }
+      if (!childBData) {
         const dynamic = getDynamicConcept(parentId, parentLabel, 'b', childDepth);
-        childBData = { label: dynamic.label, desc: dynamic.description, details: dynamic.details };
+        childBData = { label: dynamic.label, desc: dynamic.desc, details: dynamic.details };
       }
 
       const childA: MindMapNode = {
@@ -865,12 +1058,47 @@ export class GeminiService {
         generateSubBranches(b.id, b.label, b.depth, b.x, b.y);
       });
     } else {
-      // Generic single‑level fallback (still respects depth by adding sub‑branches)
-      const branches = [
-        { id: 'b1', label: `Core Aspects of ${topic}`, desc: 'Fundamental concepts', x: 260, y: -180, depth: 1, importance: 'high', details: `Key ideas behind ${topic}.` },
-        { id: 'b2', label: 'Practical Applications', desc: 'Real‑world uses', x: 260, y: 50, depth: 1, importance: 'medium', details: `How ${topic} is applied in practice.` },
-        { id: 'b3', label: 'Challenges & Tradeoffs', desc: 'Limitations and issues', x: 260, y: 220, depth: 1, importance: 'high', details: `Open problems and tradeoffs for ${topic}.` }
-      ];
+      // Detect the category of the custom topic
+      const category = detectCategory(topic);
+      let branches: Array<{ id: string; label: string; desc: string; x: number; y: number; depth: number; importance: 'high' | 'medium' | 'low'; details: string }> = [];
+
+      if (category === 'health') {
+        branches = [
+          { id: 'hlth1', label: 'Nutritional Foundations', desc: 'Essential nutrients, macro & micro balance', x: 260, y: -180, depth: 1, importance: 'high', details: 'Understanding the building blocks of healthy eating, including vitamins, minerals, proteins, healthy fats, and carbohydrates tailored to this topic.' },
+          { id: 'hlth2', label: 'Daily Meal Planning', desc: 'Practical schedules and recipes', x: 260, y: -50, depth: 1, importance: 'medium', details: 'Constructing balanced, delicious, and age-appropriate meals throughout the day, focusing on consistent schedules and food variety.' },
+          { id: 'hlth3', label: 'Healthy Habits & Education', desc: 'Fostering positive relationships with food', x: 260, y: 80, depth: 1, importance: 'medium', details: 'Techniques for introducing new foods, establishing mindful eating practices, and educating on long-term wellness habits.' },
+          { id: 'hlth4', label: 'Common Challenges & Solutions', desc: 'Overcoming picky eating and allergies', x: 260, y: 210, depth: 1, importance: 'high', details: 'Practical strategies to address common nutritional struggles, dietary restrictions, food sensitivities, and selective eating behaviors.' }
+        ];
+      } else if (category === 'tech') {
+        branches = [
+          { id: 'tech1', label: 'Core Architecture & Logic', desc: 'System design and foundational concepts', x: 260, y: -180, depth: 1, importance: 'high', details: 'Analyzing the structural pillars, core mathematical or algorithmic logic, and fundamental paradigms of this technology.' },
+          { id: 'tech2', label: 'Practical Implementations', desc: 'Frameworks, tools, and code patterns', x: 260, y: -50, depth: 1, importance: 'high', details: 'Exploring popular open-source libraries, tooling environments, and real-world implementation methodologies.' },
+          { id: 'tech3', label: 'Performance Optimization', desc: 'Scaling, latency, and resource limits', x: 260, y: 80, depth: 1, importance: 'medium', details: 'Strategies for maximizing execution speed, tuning memory usage, and avoiding scaling bottlenecks.' },
+          { id: 'tech4', label: 'Challenges & Future Trends', desc: 'Security, trade-offs, and next-gen tech', x: 260, y: 210, depth: 1, importance: 'high', details: 'Evaluating technical debt, modern security threats, compliance standards, and emergent industry directions.' }
+        ];
+      } else if (category === 'creative') {
+        branches = [
+          { id: 'crtv1', label: 'Theoretical & Historical Foundations', desc: 'Origins, movements, and key concepts', x: 260, y: -180, depth: 1, importance: 'high', details: 'Investigating the historical evolution, philosophical frameworks, and creative movements that shaped this domain.' },
+          { id: 'crtv2', label: 'Creative Techniques & Mediums', desc: 'Skills, tools, and practical execution', x: 260, y: -50, depth: 1, importance: 'high', details: 'Delving into standard artistic practices, tools of the trade, and specific technical skills required for mastery.' },
+          { id: 'crtv3', label: 'Style & Composition Analysis', desc: 'Structure, form, and aesthetics', x: 260, y: 80, depth: 1, importance: 'medium', details: 'Exploring elements of composition, structural design patterns, and aesthetic principles that make works compelling.' },
+          { id: 'crtv4', label: 'Modern Expression & Adaptations', desc: 'Contemporary uses and digital shifts', x: 260, y: 210, depth: 1, importance: 'high', details: 'Analyzing how traditional techniques adapt to digital mediums, modern audiences, and cross-disciplinary collaborations.' }
+        ];
+      } else if (category === 'business') {
+        branches = [
+          { id: 'biz1', label: 'Strategic Foundations', desc: 'Market dynamics and business models', x: 260, y: -180, depth: 1, importance: 'high', details: 'Analyzing market opportunities, value propositions, and foundational business design systems.' },
+          { id: 'biz2', label: 'Operational Execution', desc: 'Tactics, workflows, and resource allocation', x: 260, y: -50, depth: 1, importance: 'high', details: 'Exploring functional workflows, team coordination, sales cycles, and standard operational protocols.' },
+          { id: 'biz3', label: 'Financial Growth & Risk', desc: 'Revenue models, metrics, and compliance', x: 260, y: 80, depth: 1, importance: 'medium', details: 'Structuring unit economics, funding strategies, pricing models, and key risk mitigation frameworks.' },
+          { id: 'biz4', label: 'Scaling & Global Expansion', desc: 'Growth hacking and internationalization', x: 260, y: 210, depth: 1, importance: 'high', details: 'Strategies for customer acquisition, organizational scaling, international expansion, and long-term brand building.' }
+        ];
+      } else {
+        branches = [
+          { id: 'gen1', label: 'Core Fundamentals', desc: 'Origins, rules, and basic terms', x: 260, y: -180, depth: 1, importance: 'high', details: 'Getting started with the foundational terminology, history, rules, and basic equipment or skills.' },
+          { id: 'gen2', label: 'Practical Techniques', desc: 'Daily activities and hands-on exercises', x: 260, y: -50, depth: 1, importance: 'high', details: 'Step-by-step methods, skills, and activities required to put these concepts into practice.' },
+          { id: 'gen3', label: 'Key Benefits & Growth', desc: 'Mental, physical, and social impacts', x: 260, y: 80, depth: 1, importance: 'medium', details: 'Understanding the primary advantages, milestones of progress, and positive impacts of this pursuit.' },
+          { id: 'gen4', label: 'Common Barriers & Solutions', desc: 'Troubleshooting mistakes and challenges', x: 260, y: 210, depth: 1, importance: 'high', details: 'Overcoming standard plateaus, resource limitations, common errors, and practical troubleshooting steps.' }
+        ];
+      }
+
       branches.forEach(b => {
         nodes.push({
           id: b.id,

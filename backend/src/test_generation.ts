@@ -28,7 +28,7 @@ async function testGeneration() {
 
   try {
     const result = await GeminiService.generateMindMap(
-      'Skincare Routine',
+      'kids diet',
       mockIntent,
       mockExpansion,
       mockStructure
