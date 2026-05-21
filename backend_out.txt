@@ -1,0 +1,15 @@
+
+> agentic-mind-map-backend@1.0.0 dev
+> ts-node-dev --respawn --transpile-only src/index.ts
+
+[INFO] 13:11:49 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.3)
+[GeminiService] API Key detected. Using Google Gemini API.
+==================================================
+ AGENTIC MIND MAPPING BACKEND IS LIVE 
+ Port: 3001 
+ WebSocket URL: ws://localhost:3001 
+ HTTP Health check: http://localhost:3001/api/health 
+==================================================
+[WebSocket] Client connected.
+[WebSocket] Client connected.
+[WebSocket] Client connected.

@@ -132,7 +132,6 @@ const nodeTypes = { custom: MindMapNode };
 
 export default function AgenticMindMapApp() {
   const [topicInput, setTopicInput] = useState('');
-  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -157,8 +156,7 @@ export default function AgenticMindMapApp() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const previousStateRef = useRef<string>('idle');
 
@@ -177,74 +175,75 @@ export default function AgenticMindMapApp() {
     });
   }, [edges, nodes, maxVisibleDepth]);
 
-  // WebSocket connection
+  // API is co-located — always connected
   useEffect(() => {
-    const connect = () => {
-      if (reconnectTimeout.current) { clearTimeout(reconnectTimeout.current); reconnectTimeout.current = null; }
-      if (socketRef.current) {
-        const old = socketRef.current;
-        old.onopen = old.onmessage = old.onclose = old.onerror = null;
-        try { old.close(); } catch {}
-        socketRef.current = null;
-      }
-
-      const port = process.env.NEXT_PUBLIC_WS_PORT || '3001';
-      const ws = new WebSocket(`ws://localhost:${port}`);
-      socketRef.current = ws;
-      setSocket(ws);
-
-      ws.onopen = () => { setIsConnected(true); setErrorMsg(null); };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'STATE_UPDATE') {
-            const newState = data.state as OrchestratorState;
-            if (newState.status.state === 'completed' && previousStateRef.current !== 'completed') {
-              confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899'] });
-            }
-            previousStateRef.current = newState.status.state;
-            setOrchestratorState(newState);
-            if (newState.memory.mindMap) {
-              setNodes(newState.memory.mindMap.nodes as any);
-              setEdges(newState.memory.mindMap.edges as any);
-            }
-          } else if (data.type === 'NODE_ANSWER') {
-            setIsAskingQuestion(false);
-            setNodeAnswers(prev => [data as NodeAnswer, ...prev.filter(a => a.nodeId !== data.nodeId || a.question !== data.question)]);
-          } else if (data.type === 'ERROR') {
-            setErrorMsg(data.message);
-          }
-        } catch {}
-      };
-
-      ws.onclose = () => {
-        setIsConnected(false);
-        if (socketRef.current === ws) {
-          socketRef.current = null;
-          reconnectTimeout.current = setTimeout(connect, 3000);
-        }
-      };
-
-      ws.onerror = () => {
-        setIsConnected(false);
-        if (socketRef.current === ws) {
-          socketRef.current = null;
-          reconnectTimeout.current = setTimeout(connect, 3000);
-        }
-      };
-    };
-
-    connect();
+    setIsConnected(true);
     return () => {
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
-      if (socketRef.current) {
-        const ws = socketRef.current;
-        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-        try { ws.close(); } catch {}
-        socketRef.current = null;
-      }
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
+  }, []);
+
+  // ─── SSE streaming helper ──────────────────────────────────────────────────
+  const streamWorkflow = useCallback(async (
+    topic: string,
+    answers?: { questionId: string; questionText: string; answerText: string }[]
+  ) => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const response = await fetch('/api/workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, answers }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        setErrorMsg('Failed to reach the AI service. Please try again.');
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === 'STATE_UPDATE') {
+              const newState = event.state as OrchestratorState;
+              if (newState.status.state === 'completed' && previousStateRef.current !== 'completed') {
+                confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ['#6366f1', '#10b981', '#f59e0b', '#ec4899'] });
+              }
+              previousStateRef.current = newState.status.state;
+              setOrchestratorState(newState);
+              if (newState.memory.mindMap) {
+                setNodes(newState.memory.mindMap.nodes as any);
+                setEdges(newState.memory.mindMap.edges as any);
+              }
+            } else if (event.type === 'ERROR') {
+              setErrorMsg(event.message);
+            }
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setErrorMsg('Connection failed. Please try again.');
+      }
+    }
   }, [setNodes, setEdges]);
 
   // Auto-scroll logs
@@ -256,51 +255,92 @@ export default function AgenticMindMapApp() {
 
   const handleStartWorkflow = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topicInput.trim() || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!topicInput.trim()) return;
     setErrorMsg(null);
     setSelectedNode(null);
     setClarifyingAnswers({});
     setNodeAnswers([]);
-    socket.send(JSON.stringify({ type: 'START_WORKFLOW', topic: topicInput }));
+    streamWorkflow(topicInput);
   };
 
   const handleSubmitAnswers = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const questions = orchestratorState.memory.clarifyingQuestions;
     const complete = questions.length > 0 && questions.every(q => clarifyingAnswers[q.id]?.trim());
     if (!complete) return;
     const answers = questions.map(q => ({ questionId: q.id, questionText: q.question, answerText: clarifyingAnswers[q.id] }));
-    socket.send(JSON.stringify({ type: 'SUBMIT_ANSWERS', answers }));
+    streamWorkflow(orchestratorState.memory.originalInput, answers);
   };
 
-  const handleExpandNode = () => {
-    if (!selectedNode || !socket || socket.readyState !== WebSocket.OPEN) return;
+  const handleExpandNode = async () => {
+    if (!selectedNode) return;
     const depth = orchestratorState.memory.skillIntentResult?.depth ?? 'detailed';
     const parentTopic = orchestratorState.memory.originalInput;
-    socket.send(JSON.stringify({
-      type: 'EXPAND_NODE',
-      nodeId: selectedNode.id,
-      nodeLabel: (selectedNode.data as any).label,
-      parentTopic,
-      depth
+
+    setOrchestratorState(prev => ({
+      ...prev,
+      status: { ...prev.status, state: 'running', activeAgentId: 'exploration' as any },
     }));
+
+    try {
+      const response = await fetch('/api/node/expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId: selectedNode.id,
+          nodeLabel: (selectedNode.data as any).label,
+          parentTopic,
+          depth,
+          parentPosition: (selectedNode as any).position,
+          parentDepth: (selectedNode.data as any).depth ?? 1,
+        }),
+      });
+      const data = await response.json();
+      if (data.newNodes && data.newEdges) {
+        setNodes([...nodes, ...data.newNodes] as any);
+        setEdges([...edges, ...data.newEdges] as any);
+      }
+    } catch {
+      setErrorMsg('Failed to expand node. Please try again.');
+    } finally {
+      setOrchestratorState(prev => ({
+        ...prev,
+        status: { ...prev.status, state: 'completed', activeAgentId: null },
+      }));
+    }
   };
 
-  const handleAskNodeQuestion = (e: React.FormEvent) => {
+  const handleAskNodeQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nodeQuestion.trim() || !selectedNode || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!nodeQuestion.trim() || !selectedNode) return;
     setIsAskingQuestion(true);
-    socket.send(JSON.stringify({
-      type: 'ASK_NODE_QUESTION',
-      nodeId: selectedNode.id,
-      nodeLabel: (selectedNode.data as any).label,
-      parentTopic: orchestratorState.memory.originalInput,
-      question: nodeQuestion
-    }));
+    const question = nodeQuestion;
     setNodeQuestion('');
+
+    try {
+      const response = await fetch('/api/node/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId: selectedNode.id,
+          nodeLabel: (selectedNode.data as any).label,
+          parentTopic: orchestratorState.memory.originalInput,
+          question,
+        }),
+      });
+      const data = await response.json();
+      setNodeAnswers(prev => [data as NodeAnswer, ...prev.filter(a => a.nodeId !== data.nodeId || a.question !== data.question)]);
+    } catch {
+      setErrorMsg('Failed to get an answer. Please try again.');
+    } finally {
+      setIsAskingQuestion(false);
+    }
   };
 
   const handleReset = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setTopicInput('');
     setClarifyingAnswers({});
     setSelectedNode(null);
@@ -308,6 +348,7 @@ export default function AgenticMindMapApp() {
     setEdges([]);
     setNodeAnswers([]);
     setNodeQuestion('');
+    previousStateRef.current = 'idle';
     setOrchestratorState({
       memory: { originalInput: '', clarifyingQuestions: [], clarifyingAnswers: [], compressedSummary: 'Awaiting topic to begin.' },
       status: { state: 'idle', activeAgentId: null, completedAgentIds: [], logs: [] }

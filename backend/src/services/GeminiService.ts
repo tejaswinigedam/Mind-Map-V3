@@ -62,7 +62,7 @@ async function callGeminiJSON<T>(systemPrompt: string, userPrompt: string, fallb
       });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout after 15s on ${modelName}`)), 15000)
+        setTimeout(() => reject(new Error(`Timeout after 30s on ${modelName}`)), 30000)
       );
 
       const result = await Promise.race([model.generateContent(userPrompt), timeoutPromise]);
@@ -71,16 +71,21 @@ async function callGeminiJSON<T>(systemPrompt: string, userPrompt: string, fallb
       return JSON.parse(text) as T;
     } catch (error: any) {
       const msg: string = error.message || String(error);
-      const skip =
-        msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') ||
-        msg.includes('404') || msg.includes('not found') || msg.includes('NOT_FOUND');
-      if (skip) {
-        console.warn(`[GeminiService] Model ${modelName} unavailable — trying next.`);
-        continue;
+
+      // Hard stop ONLY on authentication failures — no point trying other models
+      const isAuthFailure =
+        msg.includes('401') || msg.includes('403') ||
+        msg.includes('API_KEY_INVALID') || msg.includes('PERMISSION_DENIED') ||
+        msg.includes('invalid api key') || msg.includes('unauthorized');
+
+      if (isAuthFailure) {
+        console.error(`[GeminiService] Auth failure — stopping chain:`, msg.slice(0, 200));
+        break;
       }
-      // Hard failure (auth, parse error) — stop chain
-      console.error(`[GeminiService] Hard error on ${modelName}:`, msg.slice(0, 200));
-      break;
+
+      // Everything else (quota, 404, timeout, JSON parse error, network error) → try next model
+      console.warn(`[GeminiService] Model ${modelName} skipped (${msg.slice(0, 120)}) — trying next.`);
+      continue;
     }
   }
 
