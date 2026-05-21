@@ -13,3 +13,17 @@
 [WebSocket] Client connected.
 [WebSocket] Client connected.
 [WebSocket] Client connected.
+[WebSocket] Client disconnected.
+[WebSocket] Client connected.
+[WebSocket] Client disconnected.
+[WebSocket] Client connected.
+[WebSocket] Event: START_WORKFLOW
+[SkillOrchestrator] Starting skill workflow for: "ceramic pottery"
+[GeminiService] Success with model: gemini-2.5-flash-lite
+[WebSocket] Event: SUBMIT_ANSWERS
+[GeminiService] Success with model: gemini-2.5-flash-lite
+[GeminiService] Success with model: gemini-2.5-flash-lite
+[WebSocket] Event: ASK_NODE_QUESTION
+[GeminiService] Success with model: gemini-2.5-flash-lite
+[WebSocket] Client disconnected.
+[WebSocket] Client connected.

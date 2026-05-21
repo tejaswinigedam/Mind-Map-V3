@@ -24,25 +24,29 @@ export async function POST(request: NextRequest) {
   const pY: number = parentPosition?.y ?? 0;
   const pDepth: number = parentDepth ?? 1;
 
-  const newNodes: MindMapNode[] = result.newChildren.map((child, i) => ({
-    id: child.id,
+  // Use nodeId-scoped IDs so multiple expansions never collide.
+  // Gemini always returns "exp-1","exp-2"… which clash across expansions.
+  const newChildren = result.newChildren ?? [];
+
+  const newNodes: MindMapNode[] = newChildren.map((child, i) => ({
+    id: `${nodeId}-exp-${i}`,        // unique: parent id + index
     type: 'custom',
     data: {
       label: child.label,
-      description: child.description,
+      description: child.description ?? '',
       depth: pDepth + 1,
       importance: 'low' as const,
     },
     position: {
       x: pX + 290,
-      y: pY + (i - Math.floor(result.newChildren.length / 2)) * 110,
+      y: pY + (i - Math.floor(newChildren.length / 2)) * 110,
     },
   }));
 
-  const newEdges: MindMapEdge[] = result.newChildren.map(child => ({
-    id: `e-${nodeId}-${child.id}`,
+  const newEdges: MindMapEdge[] = newChildren.map((_, i) => ({
+    id: `e-${nodeId}-exp-${i}`,      // matches node IDs above
     source: nodeId,
-    target: child.id,
+    target: `${nodeId}-exp-${i}`,
     type: 'smoothstep',
     animated: false,
   }));

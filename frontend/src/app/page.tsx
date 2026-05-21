@@ -296,8 +296,8 @@ export default function AgenticMindMapApp() {
       });
       const data = await response.json();
       if (data.newNodes && data.newEdges) {
-        setNodes([...nodes, ...data.newNodes] as any);
-        setEdges([...edges, ...data.newEdges] as any);
+        (setNodes as any)((prev: any[]) => [...prev, ...data.newNodes]);
+        (setEdges as any)((prev: any[]) => [...prev, ...data.newEdges]);
       }
     } catch {
       setErrorMsg('Failed to expand node. Please try again.');

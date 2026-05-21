@@ -19,19 +19,21 @@ function treeToReactFlow(tree: SkillMapResult): { nodes: MindMapNode[]; edges: M
   const LEVEL_GAP_X = 290;
 
   function subtreeHeight(node: SkillMapNode): number {
-    if (!node.children || node.children.length === 0) return 1;
-    return node.children.reduce((sum, c) => sum + subtreeHeight(c), 0);
+    const kids = node.children ?? [];
+    if (kids.length === 0) return 1;
+    return kids.reduce((sum, c) => sum + subtreeHeight(c), 0);
   }
 
   function processNode(
     id: string,
     label: string,
     description: string,
-    children: SkillMapNode[],
+    children: SkillMapNode[] | undefined | null,
     depth: number,
     yStart: number
   ): void {
-    const totalUnits = children.length === 0 ? 1 : children.reduce((s, c) => s + subtreeHeight(c), 0);
+    const safeChildren: SkillMapNode[] = children ?? [];
+    const totalUnits = safeChildren.length === 0 ? 1 : safeChildren.reduce((s, c) => s + subtreeHeight(c), 0);
     const totalHeight = totalUnits * NODE_GAP_Y;
     const yPos = yStart + totalHeight / 2 - NODE_GAP_Y / 2;
     const xPos = depth * LEVEL_GAP_X;
@@ -44,7 +46,7 @@ function treeToReactFlow(tree: SkillMapResult): { nodes: MindMapNode[]; edges: M
     });
 
     let childYStart = yStart;
-    for (const child of children) {
+    for (const child of safeChildren) {
       const childHeight = subtreeHeight(child) * NODE_GAP_Y;
       edges.push({
         id: `e-${id}-${child.id}`,
@@ -58,7 +60,8 @@ function treeToReactFlow(tree: SkillMapResult): { nodes: MindMapNode[]; edges: M
     }
   }
 
-  const rootTotalUnits = tree.children.reduce((s, c) => s + subtreeHeight(c), 0);
+  const rootChildren = tree.children ?? [];
+  const rootTotalUnits = rootChildren.reduce((s, c) => s + subtreeHeight(c), 0);
   const rootYCenter = (rootTotalUnits * NODE_GAP_Y) / 2 - NODE_GAP_Y / 2;
 
   nodes.push({
@@ -69,7 +72,7 @@ function treeToReactFlow(tree: SkillMapResult): { nodes: MindMapNode[]; edges: M
   });
 
   let childYStart = 0;
-  for (const child of tree.children) {
+  for (const child of rootChildren) {
     const childHeight = subtreeHeight(child) * NODE_GAP_Y;
     edges.push({
       id: `e-root-${child.id}`,
