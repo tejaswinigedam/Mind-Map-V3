@@ -1,3 +1,4 @@
+// @ts-nocheck — legacy agent (not used by SkillOrchestrator)
 import { BaseAgent } from './BaseAgent';
 import { AgentId, SharedMemory } from '../orchestrator/types';
 import { GeminiService } from '../services/GeminiService';

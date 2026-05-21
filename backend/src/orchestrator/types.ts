@@ -1,4 +1,13 @@
+import { SkillIntentResult, SkillMapResult } from '../skills/types';
+
 export type ExplorationDepth = 'surface' | 'intermediate' | 'deep' | 'strategic' | number;
+
+// Alias used by legacy GenerationAgent / GeminiService
+export type SemanticArchitecture = {
+  expansion?: unknown;
+  structure?: unknown;
+  [key: string]: unknown;
+};
 
 export interface ClarifyingQuestion {
   id: string;
@@ -80,17 +89,31 @@ export interface SharedMemory {
     nodes: MindMapNode[];
     edges: MindMapEdge[];
   };
+  validation?: {
+    status: 'clear' | 'ambiguous' | 'invalid';
+    message: string;
+    options?: string[];
+  };
   compressedSummary: string;
   conversationHistory: { role: 'user' | 'assistant'; content: string }[];
+  // Skill-based fields
+  skillIntentResult?: SkillIntentResult;
+  skillMapTree?: SkillMapResult;
 }
 
-export type AgentId = 
+export type AgentId =
+  | 'validation'
   | 'clarity'
   | 'intent'
   | 'expansion'
   | 'structure'
   | 'generation'
-  | 'memory';
+  | 'memory'
+  // Skill IDs
+  | 'intent-clarifier'
+  | 'knowledge-architect'
+  | 'exploration'
+  | 'node-conversation';
 
 export type WorkflowState = 'idle' | 'running' | 'waiting' | 'completed' | 'failed';
 

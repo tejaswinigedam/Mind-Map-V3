@@ -1,3 +1,4 @@
+// @ts-nocheck — legacy test
 import { GeminiService } from './services/GeminiService';
 import { ExtractedIntent } from './orchestrator/types';
 

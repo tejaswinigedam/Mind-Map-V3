@@ -1,12 +1,14 @@
-import { 
-  OrchestratorState, 
-  SharedMemory, 
+// @ts-nocheck — legacy multi-agent orchestrator (replaced by SkillOrchestrator)
+import {
+  OrchestratorState,
+  SharedMemory,
   WorkflowState, 
   AgentId, 
   ClarifyingAnswer,
   AgentExecutionLog
 } from './types';
 import { BaseAgent } from '../agents/BaseAgent';
+import { ValidationAgent } from '../agents/ValidationAgent';
 import { ClarityAgent } from '../agents/ClarityAgent';
 import { IntentAgent } from '../agents/IntentAgent';
 import { ExpansionAgent } from '../agents/ExpansionAgent';
@@ -19,6 +21,7 @@ export class Orchestrator {
   private onStateChange: (state: OrchestratorState) => void;
 
   private agents: Record<AgentId, BaseAgent> = {
+    validation: new ValidationAgent(),
     clarity: new ClarityAgent(),
     intent: new IntentAgent(),
     expansion: new ExpansionAgent(),
@@ -148,66 +151,130 @@ export class Orchestrator {
    */
   public async startWorkflow() {
     const topic = this.state.memory.originalInput.trim();
-    const isDetailed = topic.length > 80 || topic.includes('\n') || (topic.match(/\.|\?|!/g) || []).length > 1;
 
-    if (isDetailed) {
-      // Dynamic bypass routing
-      this.updateState({
-        status: {
-          ...this.state.status,
-          state: 'running',
-          activeAgentId: 'intent',
-          completedAgentIds: [],
-          logs: [
-            {
-              timestamp: new Date().toISOString(),
-              agentId: 'clarity',
-              status: 'completed',
-              message: 'Context Clarity Agent bypassed: High density initial context detected. Dynamic routing activated.',
-              thought: `Initial query "${topic.substring(0, 30)}..." contains rich context parameters. Asking clarifying questions would add cognitive friction. Bypassing human-in-the-loop and routing directly to the main reasoning pipeline.`,
-              duration: 50
-            }
-          ]
-        }
-      });
+    // 1. Activate the Topic Validation Agent first
+    this.updateState({
+      status: {
+        ...this.state.status,
+        state: 'running',
+        activeAgentId: 'validation',
+        completedAgentIds: [],
+        logs: []
+      }
+    });
 
-      try {
-        // Execute the entire pipeline directly: intent -> expansion -> structure -> generation -> memory
-        const pipeline: AgentId[] = ['intent', 'expansion', 'structure', 'generation', 'memory'];
+    try {
+      await this.runAgent('validation');
+      
+      const validationResult = this.state.memory.validation;
+      if (!validationResult) {
+        throw new Error('Topic Validation Agent executed but no validation result was returned in memory.');
+      }
 
-        for (const agentId of pipeline) {
-          await this.runAgent(agentId);
-        }
-
+      if (validationResult.status === 'invalid') {
+        // Case 3: Meaningless/gibberish input.
+        // Halt orchestration: clean/reset memory and set status state back to 'idle',
+        // but preserve memory.validation to let the frontend know it should display the collaborative input guide.
         this.updateState({
+          memory: {
+            ...this.state.memory,
+            clarifyingQuestions: [],
+            clarifyingAnswers: [],
+            extractedIntent: undefined,
+            expandedKnowledge: undefined,
+            structurePlan: undefined,
+            mindMap: undefined,
+            // Keep validation in memory
+          },
           status: {
             ...this.state.status,
-            state: 'completed',
+            state: 'idle',
             activeAgentId: null
           }
         });
-      } catch (error) {
-        console.error('[Orchestrator] Error during bypassed multi-agent pipeline:', error);
+        return;
+      }
+
+      if (validationResult.status === 'ambiguous') {
+        // Case 2: Ambiguous topic.
+        // Do not run ClarityAgent. Construct a custom recovery question in memory.clarifyingQuestions.
+        const recoveryQuestion = {
+          id: 'q_recover',
+          question: `Could you clarify what you'd like to explore about "${topic}"?`,
+          rationale: 'The topic is meaningful but broad. Selecting a specific domain enables the agents to generate high-value nodes.',
+          options: validationResult.options || []
+        };
+
+        this.updateState({
+          memory: {
+            ...this.state.memory,
+            clarifyingQuestions: [recoveryQuestion]
+          },
+          status: {
+            ...this.state.status,
+            state: 'waiting',
+            activeAgentId: null
+          }
+        });
+        return;
+      }
+
+      // Case 1: Clear topic. Proceed normally.
+      // If the topic is extremely detailed/dense, bypass ClarityAgent and go to the main pipeline.
+      const isDetailed = topic.length > 80 || topic.includes('\n') || (topic.match(/\.|\?|!/g) || []).length > 1;
+
+      if (isDetailed) {
+        // Dynamic bypass routing
         this.updateState({
           status: {
             ...this.state.status,
-            state: 'failed'
+            activeAgentId: 'intent',
+            logs: [
+              ...this.state.status.logs,
+              {
+                timestamp: new Date().toISOString(),
+                agentId: 'clarity',
+                status: 'completed',
+                message: 'Context Clarity Agent bypassed: High density initial context detected. Dynamic routing activated.',
+                thought: `Initial query "${topic.substring(0, 30)}..." contains rich context parameters. Asking clarifying questions would add cognitive friction. Bypassing human-in-the-loop and routing directly to the main reasoning pipeline.`,
+                duration: 50
+              }
+            ]
           }
         });
-      }
-    } else {
-      // Normal human-in-the-loop routing
-      this.updateState({
-        status: {
-          ...this.state.status,
-          state: 'running',
-          activeAgentId: 'clarity',
-          completedAgentIds: [],
-          logs: []
-        }
-      });
 
-      try {
+        try {
+          const pipeline: AgentId[] = ['intent', 'expansion', 'structure', 'generation', 'memory'];
+
+          for (const agentId of pipeline) {
+            await this.runAgent(agentId);
+          }
+
+          this.updateState({
+            status: {
+              ...this.state.status,
+              state: 'completed',
+              activeAgentId: null
+            }
+          });
+        } catch (error) {
+          console.error('[Orchestrator] Error during bypassed multi-agent pipeline:', error);
+          this.updateState({
+            status: {
+              ...this.state.status,
+              state: 'failed'
+            }
+          });
+        }
+      } else {
+        // Normal human-in-the-loop routing: run clarity agent next
+        this.updateState({
+          status: {
+            ...this.state.status,
+            activeAgentId: 'clarity'
+          }
+        });
+
         await this.runAgent('clarity');
 
         // Once clarity finishes, pause execution for user interaction (clarifying questions)
@@ -218,9 +285,17 @@ export class Orchestrator {
             activeAgentId: null
           }
         });
-      } catch (error) {
-        console.error('[Orchestrator] Error during Phase 1 clarity run:', error);
       }
+
+    } catch (error) {
+      console.error('[Orchestrator] Error during workflow execution:', error);
+      this.updateState({
+        status: {
+          ...this.state.status,
+          state: 'failed',
+          activeAgentId: null
+        }
+      });
     }
   }
 
